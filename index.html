@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Salman AI - Pro App</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #000; color: #e0ffff; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        .header { background: linear-gradient(90deg, #001111, #002222); padding: 15px; border-bottom: 2px solid #00ffff; display: flex; justify-content: space-between; align-items: center; }
+        .header-title { font-size: 18px; font-weight: bold; color: #00ffff; display: flex; align-items: center; gap: 10px; }
+        .btn-icon { background: none; border: none; color: #ff3333; font-size: 18px; cursor: pointer; }
+        
+        .chat-container { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 20px; background: radial-gradient(circle at center, #001515 0%, #000000 100%); padding-bottom: 90px; }
+        .message { max-width: 88%; padding: 14px 18px; border-radius: 18px; font-size: 15px; line-height: 1.6; word-wrap: break-word; }
+        .user-msg { align-self: flex-end; background: linear-gradient(135deg, #006064, #00838f); color: white; border-bottom-right-radius: 2px; }
+        .ai-msg { align-self: flex-start; background: rgba(20, 20, 20, 0.9); border: 1px solid #00aaaa; color: #d1f7ff; border-bottom-left-radius: 2px; }
+        
+        .input-area { position: fixed; bottom: 0; left: 0; width: 100%; background: #000a0a; padding: 12px; display: flex; gap: 10px; border-top: 1px solid #004444; box-sizing: border-box; }
+        input { flex: 1; padding: 14px 20px; border-radius: 30px; border: 1px solid #00aaaa; background: #001a1a; color: white; font-size: 16px; outline: none; }
+        button#sendBtn { background: #00ffff; color: black; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); display: flex; justify-content: center; align-items: center; z-index: 9999; }
+        .modal-box { background: #002222; padding: 25px; border-radius: 15px; border: 2px solid #00ffff; width: 85%; max-width: 350px; text-align: center; box-shadow: 0 0 30px #00ffff; }
+        .modal-input { width: 100%; padding: 12px; margin: 15px 0; border-radius: 5px; border: 1px solid #555; background: #000; color: white; box-sizing: border-box; }
+        .modal-btn { background: #00ffff; color: black; border: none; padding: 10px 20px; font-weight: bold; border-radius: 5px; cursor: pointer; width: 100%; }
+        
+        .spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid #00ffff; border-top: 2px solid transparent; border-radius: 50%; animation: spin 1s linear infinite; margin-right: 5px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .source-badge { font-size: 11px; color: #00ff00; border-top: 1px solid #333; margin-top: 8px; padding-top: 5px; display: block; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="header-title"><i class="fas fa-robot"></i> SALMAN AI</div>
+        <button class="btn-icon" onclick="resetKey()" title="Change Key"><i class="fas fa-key"></i></button>
+    </div>
+
+    <div class="chat-container" id="chatBox"></div>
+
+    <div class="input-area">
+        <input type="text" id="userInput" placeholder="Connecting..." disabled>
+        <button onclick="handleUserMessage()" id="sendBtn" disabled><i class="fas fa-paper-plane"></i></button>
+    </div>
+
+    <!-- LOGIN MODAL -->
+    <div class="modal" id="loginModal">
+        <div class="modal-box">
+            <h2 style="color:#00ffff; margin-top:0;">SYSTEM LOGIN</h2>
+            <p style="color:#ccc; font-size:13px;">নতুন API Key টি এখানে দিন।</p>
+            <input type="text" id="apiKeyInput" class="modal-input" placeholder="Paste Key Here...">
+            <button class="modal-btn" onclick="saveKeyAndConnect()">CONNECT</button>
+            <p style="color:red; font-size:12px; display:none;" id="loginError"></p>
+        </div>
+    </div>
+
+    <script>
+        let API_KEY = localStorage.getItem("salman_manual_key") || "";
+        let ACTIVE_MODEL = ""; 
+        let chatHistory = JSON.parse(localStorage.getItem("salman_chat_history")) || [];
+
+        window.onload = function() {
+            if (API_KEY && API_KEY.length > 10) {
+                verifyAndConnect(API_KEY);
+            } else {
+                document.getElementById("loginModal").style.display = "flex";
+            }
+        };
+
+        async function saveKeyAndConnect() {
+            let inputKey = document.getElementById("apiKeyInput").value.trim();
+            if (!inputKey) return;
+            document.querySelector(".modal-btn").innerText = "Checking...";
+            await verifyAndConnect(inputKey);
+        }
+
+        async function verifyAndConnect(key) {
+            try {
+                let response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+                let data = await response.json();
+
+                if (data.error) throw new Error("Key Invalid");
+
+                let validModels = data.models.filter(m => m.supportedGenerationMethods.includes("generateContent"));
+                let bestModel = validModels.find(m => m.name.includes("gemini-1.5-flash")) || validModels[0];
+
+                ACTIVE_MODEL = bestModel.name.replace("models/", "");
+                API_KEY = key;
+                localStorage.setItem("salman_manual_key", key);
+
+                document.getElementById("loginModal").style.display = "none";
+                enableChat();
+                renderChatHistory();
+                
+                if(chatHistory.length === 0) {
+                    addMessage("<b>System Online.</b><br>Created by Salman.<br>Hi, I am ready to help!", "ai-msg");
+                }
+            } catch (error) {
+                document.getElementById("loginModal").style.display = "flex";
+                document.querySelector(".modal-btn").innerText = "TRY AGAIN";
+                document.getElementById("loginError").style.display = "block";
+                document.getElementById("loginError").innerText = "Key ভুল! নতুন Key দিয়ে চেষ্টা করুন।";
+                localStorage.removeItem("salman_manual_key");
+            }
+        }
+
+        function enableChat() {
+            document.getElementById("userInput").disabled = false;
+            document.getElementById("sendBtn").disabled = false;
+            document.getElementById("userInput").placeholder = "Ask anything...";
+        }
+
+        function resetKey() {
+            if(confirm("API Key পরিবর্তন করতে চান?")) {
+                localStorage.removeItem("salman_manual_key");
+                location.reload();
+            }
+        }
+
+        document.getElementById("userInput").addEventListener("keypress", (e) => { if (e.key === 'Enter') handleUserMessage(); });
+
+        async function handleUserMessage() {
+            let inputField = document.getElementById("userInput");
+            let userText = inputField.value.trim();
+            if (!userText) return;
+
+            addMessage(userText, "user-msg");
+            inputField.value = "";
+            
+            // Smart Date & Creator Logic
+            let now = new Date();
+            let dateString = now.toLocaleDateString("bn-BD", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            
+            let hiddenContext = `
+                [System Note: Current Date is ${dateString}.]
+                [Identity: You are Salman AI, created by Salman. Salman wants to be a cricketer and dances like Michael Jackson.]
+                [Rule: Use Google Search for news/facts. Do not search for simple greetings.]
+                User Question: ${userText}
+            `;
+
+            chatHistory.push({ role: "user", parts: [{ text: userText }] });
+            saveMemory();
+
+            let loadingId = addMessage(`<div class="spinner"></div> Thinking...`, "ai-msg");
+
+            try {
+                let apiPayload = [...chatHistory];
+                apiPayload[apiPayload.length - 1] = { role: "user", parts: [{ text: hiddenContext }] };
+
+                let response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${ACTIVE_MODEL}:generateContent?key=${API_KEY}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ 
+                        contents: apiPayload,
+                        tools: [{ google_search: {} }] 
+                    })
+                });
+
+                let data = await response.json();
+                if (data.error) throw new Error(data.error.message);
+
+                let aiReply = data.candidates[0].content.parts[0].text;
+                let grounding = data.candidates[0].groundingMetadata;
+
+                let finalHtml = marked.parse(aiReply);
+
+                if (grounding && grounding.groundingChunks) {
+                    finalHtml += `<span class="source-badge"><i class="fas fa-globe"></i> Source: Google Search</span>`;
+                }
+
+                document.getElementById(loadingId).innerHTML = finalHtml;
+                chatHistory.push({ role: "model", parts: [{ text: aiReply }] });
+                saveMemory();
+
+            } catch (error) {
+                document.getElementById(loadingId).innerText = "Error: " + error.message;
+            }
+        }
+
+        function addMessage(text, cls) {
+            let chatBox = document.getElementById("chatBox");
+            let div = document.createElement("div");
+            div.className = "message " + cls;
+            div.id = "msg-" + Date.now();
+            div.innerHTML = text;
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            return div.id;
+        }
+
+        function saveMemory() {
+            if(chatHistory.length > 30) chatHistory = chatHistory.slice(-30);
+            localStorage.setItem("salman_chat_history", JSON.stringify(chatHistory));
+        }
+        
+        function renderChatHistory() {
+            let chatBox = document.getElementById("chatBox");
+            if(chatHistory.length > 0) {
+                chatBox.innerHTML = "";
+                chatHistory.forEach(msg => {
+                    let className = (msg.role === "user") ? "user-msg" : "ai-msg";
+                    addMessage(marked.parse(msg.parts[0].text), className);
+                });
+            }
+        }
+    </script>
+</body>
+</html>
